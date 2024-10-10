@@ -27,7 +27,6 @@ export const signGcpRequest: ProxyReqMutator = async (manager) => {
   req.log.info({ key: key.hash, model }, "Assigned GCP key to request");
 
   // TODO: This should happen in transform-outbound-payload.ts
-  // TODO: Support tools
   let strippedParams: Record<string, unknown>;
   strippedParams = AnthropicV1MessagesSchema.pick({
     messages: true,
@@ -37,6 +36,8 @@ export const signGcpRequest: ProxyReqMutator = async (manager) => {
     temperature: true,
     top_k: true,
     top_p: true,
+    tools: true,
+    tool_choice: true,
     stream: true,
   })
     .strip()
