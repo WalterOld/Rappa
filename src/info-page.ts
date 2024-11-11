@@ -46,28 +46,35 @@ const MODEL_FAMILY_FRIENDLY_NAME: { [f in ModelFamily]: string } = {
   "azure-o1-mini": "Azure o1 mini",
   "azure-dall-e": "Azure DALL-E",
 };
+
 const converter = new showdown.Converter();
 const customGreeting = fs.existsSync("greeting.md")
   ? `<div id="servergreeting">${fs.readFileSync("greeting.md", "utf8")}</div>`
   : "";
 let infoPageHtml: string | undefined;
 let infoPageLastUpdated = 0;
+
 export const handleInfoPage = (req: Request, res: Response) => {
   if (infoPageLastUpdated + INFO_PAGE_TTL > Date.now()) {
     return res.send(infoPageHtml);
   }
+
   const baseUrl =
     process.env.SPACE_ID && !req.get("host")?.includes("hf.space")
       ? getExternalUrlForHuggingfaceSpaceId(process.env.SPACE_ID)
       : req.protocol + "://" + req.get("host");
+
   const info = buildInfo(baseUrl + config.proxyEndpointRoute);
   infoPageHtml = renderPage(info);
   infoPageLastUpdated = Date.now();
+
   res.send(infoPageHtml);
 };
+
 export function renderPage(info: ServiceInfo) {
   const title = getServerTitle();
   const headerHtml = buildInfoPageHeader(info);
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -84,7 +91,7 @@ export function renderPage(info: ServiceInfo) {
         max-width: 900px;
         margin: 0;
       }
-
+      
       .self-service-links {
         display: flex;
         justify-content: center;
@@ -92,7 +99,7 @@ export function renderPage(info: ServiceInfo) {
         padding: 0.5em;
         font-size: 0.8em;
       }
-
+      
       .self-service-links a {
         margin: 0 0.5em;
       }
@@ -107,6 +114,7 @@ export function renderPage(info: ServiceInfo) {
   </body>
 </html>`;
 }
+
 /**
  * If the server operator provides a `greeting.md` file, it will be included in
  * the rendered info page.
@@ -118,18 +126,25 @@ function buildInfoPageHeader(info: ServiceInfo) {
   if (config.promptLogging) {
     infoBody += `\n## Prompt Logging Enabled
 This proxy keeps full logs of all prompts and AI responses. Prompt logs are anonymous and do not contain IP addresses or timestamps.
+
 [You can see the type of data logged here, along with the rest of the code.](https://gitgud.io/khanon/oai-reverse-proxy/-/blob/main/src/shared/prompt-logging/index.ts).
+
 **If you are uncomfortable with this, don't send prompts to this proxy!**`;
   }
+
   if (config.staticServiceInfo) {
     return converter.makeHtml(infoBody + customGreeting);
   }
+
   const waits: string[] = [];
+
   for (const modelFamily of config.allowedModelFamilies) {
     const service = MODEL_FAMILY_SERVICE[modelFamily];
+
     const hasKeys = keyPool.list().some((k) => {
       return k.service === service && k.modelFamilies.includes(modelFamily);
     });
+
     const wait = info[modelFamily]?.estimatedQueueTime;
     if (hasKeys && wait) {
       waits.push(
@@ -137,36 +152,48 @@ This proxy keeps full logs of all prompts and AI responses. Prompt logs are anon
       );
     }
   }
+
   infoBody += "\n\n" + waits.join(" / ");
+
   infoBody += customGreeting;
+
   infoBody += buildRecentImageSection();
+
   return converter.makeHtml(infoBody);
 }
+
 function getSelfServiceLinks() {
   if (config.gatekeeper !== "user_token") return "";
+
   const links = [["Check your user token", "/user/lookup"]];
   if (config.captchaMode !== "none") {
     links.unshift(["Request a user token", "/user/captcha"]);
   }
+
   return `<div class="self-service-links">${links
     .map(([text, link]) => `<a href="${link}">${text}</a>`)
     .join(" | ")}</div>`;
 }
+
 function getServerTitle() {
   // Use manually set title if available
   if (process.env.SERVER_TITLE) {
     return process.env.SERVER_TITLE;
   }
+
   // Huggingface
   if (process.env.SPACE_ID) {
     return `${process.env.SPACE_AUTHOR_NAME} / ${process.env.SPACE_TITLE}`;
   }
+
   // Render
   if (process.env.RENDER) {
     return `Render / ${process.env.RENDER_SERVICE_NAME}`;
   }
+
   return "OAI Reverse Proxy";
 }
+
 function buildRecentImageSection() {
   const dalleModels: ModelFamily[] = ["azure-dall-e", "dall-e"];
   if (
@@ -175,12 +202,14 @@ function buildRecentImageSection() {
   ) {
     return "";
   }
+
   let html = `<h2>Recent DALL-E Generations</h2>`;
   const recentImages = getLastNImages(12).reverse();
   if (recentImages.length === 0) {
     html += `<p>No images yet.</p>`;
     return html;
   }
+
   html += `<div style="display: flex; flex-wrap: wrap;" id="recent-images">`;
   for (const { url, prompt } of recentImages) {
     const thumbUrl = url.replace(/\.png$/, "_t.jpg");
@@ -191,18 +220,21 @@ function buildRecentImageSection() {
   }
   html += `</div>`;
   html += `<p style="clear: both; text-align: center;"><a href="/user/image-history">View all recent images</a></p>`;
+
   return html;
 }
+
 function escapeHtml(unsafe: string) {
   return unsafe
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """)
-    .replace(/'/g, "'")
-    .replace(/\[/g, "[")
-    .replace(/]/g, "]");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\[/g, "&#91;")
+    .replace(/]/g, "&#93;");
 }
+
 function getExternalUrlForHuggingfaceSpaceId(spaceId: string) {
   try {
     const [username, spacename] = spaceId.split("/");
@@ -211,6 +243,7 @@ function getExternalUrlForHuggingfaceSpaceId(spaceId: string) {
     return "";
   }
 }
+
 function checkIfUnlocked(
   req: Request,
   res: Response,
@@ -221,6 +254,7 @@ function checkIfUnlocked(
   }
   next();
 }
+
 const infoPageRouter = Router();
 if (config.serviceInfoPassword?.length) {
   infoPageRouter.use(
@@ -238,6 +272,7 @@ if (config.serviceInfoPassword?.length) {
   });
   infoPageRouter.get("/unlock-info", (_req, res) => {
     if (_req.session?.unlocked) return res.redirect("/");
+
     res.send(`
       <form method="post" action="/unlock-info">
         <h1>Unlock Service Info</h1>
