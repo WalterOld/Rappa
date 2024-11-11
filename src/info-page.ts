@@ -1,3 +1,4 @@
+/** This whole module kinda sucks */
 import fs from "fs";
 import express, { Router, Request, Response } from "express";
 import showdown from "showdown";
@@ -10,49 +11,12 @@ import { withSession } from "./shared/with-session";
 import { checkCsrfToken, injectCsrfToken } from "./shared/inject-csrf";
 
 const INFO_PAGE_TTL = 2000;
-const MODEL_FAMILY_FRIENDLY_NAME: { [f in ModelFamily]: string } = {
-  turbo: "GPT-4o Mini / 3.5 Turbo",
-  gpt4: "GPT-4",
-  "gpt4-32k": "GPT-4 32k",
-  "gpt4-turbo": "GPT-4 Turbo",
-  gpt4o: "GPT-4o",
-  o1: "OpenAI o1",
-  "o1-mini": "OpenAI o1 mini",
-  "dall-e": "DALL-E",
-  claude: "Claude (Sonnet)",
-  "claude-opus": "Claude (Opus)",
-  "gemini-flash": "Gemini Flash",
-  "gemini-pro": "Gemini Pro",
-  "gemini-ultra": "Gemini Ultra",
-  "mistral-tiny": "Mistral 7B",
-  "mistral-small": "Mistral Nemo",
-  "mistral-medium": "Mistral Medium",
-  "mistral-large": "Mistral Large",
-  "aws-claude": "AWS Claude (Sonnet)",
-  "aws-claude-opus": "AWS Claude (Opus)",
-  "aws-mistral-tiny": "AWS Mistral 7B",
-  "aws-mistral-small": "AWS Mistral Nemo",
-  "aws-mistral-medium": "AWS Mistral Medium",
-  "aws-mistral-large": "AWS Mistral Large",
-  "gcp-claude": "GCP Claude (Sonnet)",
-  "gcp-claude-opus": "GCP Claude (Opus)",
-  "azure-turbo": "Azure GPT-3.5 Turbo",
-  "azure-gpt4": "Azure GPT-4",
-  "azure-gpt4-32k": "Azure GPT-4 32k",
-  "azure-gpt4-turbo": "Azure GPT-4 Turbo",
-  "azure-gpt4o": "Azure GPT-4o",
-  "azure-o1": "Azure o1",
-  "azure-o1-mini": "Azure o1 mini",
-  "azure-dall-e": "Azure DALL-E",
-};
 const converter = new showdown.Converter();
-const customGreeting = fs.existsSync("greeting.md")
-  ? `<div id="servergreeting">${fs.readFileSync("greeting.md", "utf8")}</div>`
-  : "";
 let infoPageHtml: string | undefined;
 let infoPageLastUpdated = 0;
+
 export const handleInfoPage = (req: Request, res: Response) => {
-  if (infoPageLastUpdated + INFO_PAGE_TTL > Date.now()) {
+  if (infoPageLastUpdated + INFO_PAGE_TTL > Date.now(}} {
     return res.send(infoPageHtml);
   }
   const baseUrl =
@@ -65,13 +29,16 @@ export const handleInfoPage = (req: Request, res: Response) => {
   res.send(infoPageHtml);
 };
 
-export function renderPage() {
+export function renderPage(info: ServiceInfo) {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
-    <title>Service Info</title>
+    <title>Service Information Restricted</title>
+    <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
+    <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
+    <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
     <style>
       body {
         background-color: black;
@@ -82,28 +49,76 @@ export function renderPage() {
         justify-content: center;
         height: 100vh;
         margin: 0;
+        text-align: center;
+      }
+      .restricted-message {
+        max-width: 600px;
+        padding: 20px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 10px;
       }
     </style>
   </head>
   <body>
-    <h1>Service information is currently unavailable.</h1>
+    <div class="restricted-message">
+      <h1>Service Information Restricted</h1>
+      <p>Access to service details is currently unavailable.</p>
+    </div>
   </body>
 </html>`;
 }
 
+function getExternalUrlForHuggingfaceSpaceId(spaceId: string) {
+  try {
+    const [username, spacename] = spaceId.split("/");
+    return `https://${username}-${spacename.replace(/_/g, "-")}.hf.space`;
+  } catch (e) {
+    return "";
+  }
+}
+
 function checkIfUnlocked(
-  _req: Request,
+  req: Request,
   res: Response,
   next: express.NextFunction
 ) {
+  if (config.serviceInfoPassword?.length && !req.session?.unlocked) {
+    return res.redirect("/unlock-info");
+  }
   next();
 }
 
 const infoPageRouter = Router();
-infoPageRouter.use(checkIfUnlocked);
+if (config.serviceInfoPassword?.length) {
+  infoPageRouter.use(
+    express.json({ limit: "1mb" }),
+    express.urlencoded({ extended: true, limit: "1mb" })
+  );
+  infoPageRouter.use(withSession);
+  infoPageRouter.use(injectCsrfToken, checkCsrfToken);
+  infoPageRouter.post("/unlock-info", (req, res) => {
+    if (req.body.password !== config.serviceInfoPassword) {
+      return res.status(403).send("Incorrect password");
+    }
+    req.session!.unlocked = true;
+    res.redirect("/");
+  });
+  infoPageRouter.get("/unlock-info", (_req, res) => {
+    if (_req.session?.unlocked) return res.redirect("/");
+    res.send(`
+      <form method="post" action="/unlock-info">
+        <h1>Unlock Service Info</h1>
+        <input type="hidden" name="_csrf" value="${res.locals.csrfToken}" />
+        <input type="password" name="password" placeholder="Password" />
+        <button type="submit">Unlock</button>
+      </form>
+    `);
+  });
+  infoPageRouter.use(checkIfUnlocked);
+}
 infoPageRouter.get("/", handleInfoPage);
-infoPageRouter.get("/status", (_req, res) => {
-  res.status(404).send("Not Found");
+infoPageRouter.get("/status", (req, res) => {
+  res.json(buildInfo(req.protocol + "://" + req.get("host"), false}};
 });
 
 export { infoPageRouter };
