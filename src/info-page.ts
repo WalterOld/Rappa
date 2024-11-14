@@ -76,7 +76,6 @@ export function renderPage(info: ServiceInfo) {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Restricted Access</title>
     <style>
       body {
         background-color: black;
@@ -97,8 +96,6 @@ export function renderPage(info: ServiceInfo) {
   </head>
   <body>
     <div class="message">
-      <h1>Access Restricted</h1>
-      <p>Service information is currently unavailable.</p>
     </div>
   </body>
 </html>`;
