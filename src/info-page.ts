@@ -228,7 +228,7 @@ function escapeHtml(unsafe: string) {
     .replace(/&/g, "&")
     .replace(/</g, "<")
     .replace(/>/g, ">")
-    .replace(/"/g, """)
+    .replace(/"/g, "\"")
     .replace(/'/g, "'")
     .replace(/\[/g, "[")
     .replace(/]/g, "]");
