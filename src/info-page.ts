@@ -1,7 +1,9 @@
+/** This whole module kinda sucks */
 import fs from "fs";
 import express, { Router, Request, Response } from "express";
 import showdown from "showdown";
 import axios from "axios";
+import path from "path";
 import { config } from "./config";
 import { buildInfo, ServiceInfo } from "./service-info";
 import { getLastNImages } from "./shared/file-storage/image-history";
@@ -11,7 +13,6 @@ import { withSession } from "./shared/with-session";
 import { checkCsrfToken, injectCsrfToken } from "./shared/inject-csrf";
 
 const INFO_PAGE_TTL = 2000;
-
 const MODEL_FAMILY_FRIENDLY_NAME: { [f in ModelFamily]: string } = {
   turbo: "GPT-4o Mini / 3.5 Turbo",
   gpt4: "GPT-4",
@@ -48,45 +49,6 @@ const MODEL_FAMILY_FRIENDLY_NAME: { [f in ModelFamily]: string } = {
   "azure-dall-e": "Azure DALL-E",
 };
 
-// Utility to load HTML or CSS from .env variable, file, or URL
-async function loadDynamicContent(envVar: string): Promise<string> {
-  const value = process.env[envVar];
-  if (!value) return "";
-
-  try {
-    if (fs.existsSync(value)) {
-      // Load from file path
-      console.log(`[INFO] Loading content from file: ${value}`);
-      return fs.readFileSync(value, "utf8");
-    } else if (value.startsWith("http://") || value.startsWith("https://")) {
-      // Load from URL
-      console.log(`[INFO] Loading content from URL: ${value}`);
-      const response = await axios.get(value);
-      return response.data;
-    } else {
-      // Inline content
-      console.log(`[INFO] Using inline content for ${envVar}`);
-      return value;
-    }
-  } catch (error) {
-    console.error(`[ERROR] Failed to load content for ${envVar}:`, error);
-    return "";
-  }
-}
-
-// Load dynamic HTML and CSS
-let customHtmlTemplate = "";
-let customCss = "";
-
-(async () => {
-  customHtmlTemplate = await loadDynamicContent("CUSTOM_HTML_TEMPLATE");
-  customCss = await loadDynamicContent("CUSTOM_CSS");
-
-  // Debugging: Log loaded content (trimmed for clarity)
-  console.log(`[DEBUG] Loaded HTML Template (first 100 chars): ${customHtmlTemplate.slice(0, 100)}`);
-  console.log(`[DEBUG] Loaded CSS (first 100 chars): ${customCss.slice(0, 100)}`);
-})();
-
 const converter = new showdown.Converter();
 const customGreeting = fs.existsSync("greeting.md")
   ? `<div id="servergreeting">${fs.readFileSync("greeting.md", "utf8")}</div>`
@@ -112,30 +74,52 @@ export const handleInfoPage = (req: Request, res: Response) => {
 };
 
 export function renderPage(info: ServiceInfo) {
-  const title = getServerTitle();
-  const headerHtml = buildInfoPageHeader(info);
+  const htmlPath = process.env.HTML_CUSTOM;
+  const cssPath = process.env.CSS_CUSTOM;
 
-  // Use dynamic HTML template if provided
-  if (customHtmlTemplate && customHtmlTemplate.trim().length > 0) {
-    return customHtmlTemplate
-      .replace("{{title}}", title)
-      .replace("{{headerHtml}}", headerHtml)
-      .replace("{{selfServiceLinks}}", getSelfServiceLinks())
-      .replace("{{infoJson}}", JSON.stringify(info, null, 2));
+  let htmlData = "";
+  let cssData = "";
+
+  // Check if HTML_CUSTOM and CSS_CUSTOM are URLs, files, or base64
+  if (htmlPath.startsWith("http")) {
+    // It's a URL, make a GET request
+    axios.get(htmlPath).then((response) => {
+      htmlData = response.data;
+    });
+  } else if (fs.existsSync(htmlPath)) {
+    // It's a file, read it
+    htmlData = fs.readFileSync(htmlPath, "utf8");
+  } else {
+    // It's base64, decode it
+    htmlData = Buffer.from(htmlPath, "base64").toString("utf8");
   }
 
-  // Log fallback usage
-  console.log("[WARN] Falling back to default HTML template");
+  if (cssPath.startsWith("http")) {
+    axios.get(cssPath).then((response) => {
+      cssData = response.data;
+    });
+  } else if (fs.existsSync(cssPath)) {
+    cssData = fs.readFileSync(cssPath, "utf8");
+  } else {
+    cssData = Buffer.from(cssPath, "base64").toString("utf8");
+  }
 
-  // Fallback to default HTML
+  // Then replace the hard-coded HTML and CSS with the variables
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <style>${customCss || defaultCss}</style>
+    <meta name="robots" content="noindex" />
+    <title>${getServerTitle()}</title>
+    <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
+    <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
+    <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
+    <style>
+      ${cssData}
+    </style>
   </head>
   <body>
-    ${headerHtml}
+    ${htmlData}
     <hr />
     ${getSelfServiceLinks()}
     <h2>Service Info</h2>
@@ -144,58 +128,16 @@ export function renderPage(info: ServiceInfo) {
 </html>`;
 }
 
-const defaultCss = `
-  body {
-    font-family: sans-serif;
-    padding: 1em;
-    max-width: 900px;
-    margin: 0 auto;
-    background-color: #1e1e1e;
-    color: #cfcfcf;
-  }
-  .self-service-links {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 1em;
-    padding: 0.5em;
-    font-size: 0.8em;
-  }
-  .self-service-links a {
-    margin: 0 0.5em;
-    color: #61dafb;
-    text-decoration: none;
-  }
-  .self-service-links a:hover {
-    text-decoration: underline;
-  }
-`;
-
-function getServerTitle(): string {
-  if (process.env.SERVER_TITLE) {
-    return process.env.SERVER_TITLE;
-  }
-
-  if (process.env.SPACE_ID) {
-    return `${process.env.SPACE_AUTHOR_NAME} / ${process.env.SPACE_TITLE}`;
-  }
-
-  if (process.env.RENDER) {
-    return `Render / ${process.env.RENDER_SERVICE_NAME}`;
-  }
-
-  return "OAI Reverse Proxy";
-}
-
-function buildInfoPageHeader(info: ServiceInfo): string {
+/**
+ * If the server operator provides a `greeting.md` file, it will be included in
+ * the rendered info page.
+ **/
+function buildInfoPageHeader(info: ServiceInfo) {
   const title = getServerTitle();
+  // TODO: use some templating engine instead of this mess
   let infoBody = `# ${title}`;
   if (config.promptLogging) {
-    infoBody += `\n## Prompt Logging Enabled
-This proxy keeps full logs of all prompts and AI responses. Prompt logs are anonymous and do not contain IP addresses or timestamps.
-
-[You can see the type of data logged here, along with the rest of the code.](https://gitgud.io/khanon/oai-reverse-proxy/-/blob/main/src/shared/prompt-logging/index.ts).
-
-**If you are uncomfortable with this, don't send prompts to this proxy!**`;
+    infoBody += `\n## Prompt Logging Enabled`;
   }
 
   if (config.staticServiceInfo) {
@@ -220,13 +162,15 @@ This proxy keeps full logs of all prompts and AI responses. Prompt logs are anon
   }
 
   infoBody += "\n\n" + waits.join(" / ");
+
   infoBody += customGreeting;
+
   infoBody += buildRecentImageSection();
 
   return converter.makeHtml(infoBody);
 }
 
-function getSelfServiceLinks(): string {
+function getSelfServiceLinks() {
   if (config.gatekeeper !== "user_token") return "";
 
   const links = [["Check your user token", "/user/lookup"]];
@@ -239,7 +183,26 @@ function getSelfServiceLinks(): string {
     .join(" | ")}</div>`;
 }
 
-function buildRecentImageSection(): string {
+function getServerTitle() {
+  // Use manually set title if available
+  if (process.env.SERVER_TITLE) {
+    return process.env.SERVER_TITLE;
+  }
+
+  // Huggingface
+  if (process.env.SPACE_ID) {
+    return `${process.env.SPACE_AUTHOR_NAME} / ${process.env.SPACE_TITLE}`;
+  }
+
+  // Render
+  if (process.env.RENDER) {
+    return `Render / ${process.env.RENDER_SERVICE_NAME}`;
+  }
+
+  return "OAI Reverse Proxy";
+}
+
+function buildRecentImageSection() {
   const dalleModels: ModelFamily[] = ["azure-dall-e", "dall-e"];
   if (
     !config.showRecentImages ||
@@ -269,18 +232,18 @@ function buildRecentImageSection(): string {
   return html;
 }
 
-function escapeHtml(unsafe: string): string {
+function escapeHtml(unsafe: string) {
   return unsafe
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, "\"")
-    .replace(/'/g, "'")
-    .replace(/\[/g, "[")
-    .replace(/]/g, "]");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\[/g, "&#91;")
+    .replace(/]/g, "&#93;");
 }
 
-function getExternalUrlForHuggingfaceSpaceId(spaceId: string): string {
+function getExternalUrlForHuggingfaceSpaceId(spaceId: string) {
   try {
     const [username, spacename] = spaceId.split("/");
     return `https://${username}-${spacename.replace(/_/g, "-")}.hf.space`;
@@ -293,7 +256,7 @@ function checkIfUnlocked(
   req: Request,
   res: Response,
   next: express.NextFunction
-): void {
+) {
   if (config.serviceInfoPassword?.length && !req.session?.unlocked) {
     return res.redirect("/unlock-info");
   }
@@ -301,7 +264,6 @@ function checkIfUnlocked(
 }
 
 const infoPageRouter = Router();
-
 if (config.serviceInfoPassword?.length) {
   infoPageRouter.use(
     express.json({ limit: "1mb" }),
@@ -309,7 +271,6 @@ if (config.serviceInfoPassword?.length) {
   );
   infoPageRouter.use(withSession);
   infoPageRouter.use(injectCsrfToken, checkCsrfToken);
-
   infoPageRouter.post("/unlock-info", (req, res) => {
     if (req.body.password !== config.serviceInfoPassword) {
       return res.status(403).send("Incorrect password");
@@ -317,85 +278,22 @@ if (config.serviceInfoPassword?.length) {
     req.session!.unlocked = true;
     res.redirect("/");
   });
-
   infoPageRouter.get("/unlock-info", (_req, res) => {
     if (_req.session?.unlocked) return res.redirect("/");
 
-    const csrfToken = res.locals.csrfToken || "";
     res.send(`
-      <!doctype html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <title>Unlock Service Info</title>
-          <style>
-            body {
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              height: 100vh;
-              margin: 0;
-              font-family: 'Roboto', sans-serif;
-              background-color: #0d1117;
-              color: #c9d1d9;
-            }
-            form {
-              background: #161b22;
-              padding: 2em;
-              border-radius: 8px;
-              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-              text-align: center;
-              max-width: 400px;
-              width: 100%;
-            }
-            h1 {
-              margin-bottom: 1em;
-              font-size: 1.5em;
-              color: #58a6ff;
-            }
-            input[type="password"] {
-              width: 100%;
-              padding: 0.8em;
-              margin-bottom: 1em;
-              border: 1px solid #30363d;
-              border-radius: 4px;
-              background: #0d1117;
-              color: #c9d1d9;
-            }
-            button {
-              width: 100%;
-              padding: 0.8em;
-              background: #238636;
-              color: white;
-              border: none;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 1em;
-            }
-            button:hover {
-              background: #2ea043;
-            }
-          </style>
-        </head>
-        <body>
-          <form method="post" action="/unlock-info">
-            <h1>Unlock Service Info</h1>
-            <input type="hidden" name="_csrf" value="${csrfToken}" />
-            <input type="password" name="password" placeholder="Enter Password" required />
-            <button type="submit">Unlock</button>
-          </form>
-        </body>
-      </html>
+      <form method="post" action="/unlock-info">
+        <h1>Unlock Service Info</h1>
+        <input type="hidden" name="_csrf" value="${res.locals.csrfToken}" />
+        <input type="password" name="password" placeholder="Password" />
+        <button type="submit">Unlock</button>
+      </form>
     `);
   });
-
   infoPageRouter.use(checkIfUnlocked);
 }
-
 infoPageRouter.get("/", handleInfoPage);
 infoPageRouter.get("/status", (req, res) => {
   res.json(buildInfo(req.protocol + "://" + req.get("host"), false));
 });
-
 export { infoPageRouter };
