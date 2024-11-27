@@ -56,17 +56,20 @@ async function loadDynamicContent(envVar: string): Promise<string> {
   try {
     if (fs.existsSync(value)) {
       // Load from file path
+      console.log(`[INFO] Loading content from file: ${value}`);
       return fs.readFileSync(value, "utf8");
     } else if (value.startsWith("http://") || value.startsWith("https://")) {
       // Load from URL
-      const response = await axios.get(value); // Await the response
+      console.log(`[INFO] Loading content from URL: ${value}`);
+      const response = await axios.get(value);
       return response.data;
     } else {
       // Inline content
+      console.log(`[INFO] Using inline content for ${envVar}`);
       return value;
     }
   } catch (error) {
-    console.error(`Failed to load content for ${envVar}:`, error);
+    console.error(`[ERROR] Failed to load content for ${envVar}:`, error);
     return "";
   }
 }
@@ -78,6 +81,10 @@ let customCss = "";
 (async () => {
   customHtmlTemplate = await loadDynamicContent("CUSTOM_HTML_TEMPLATE");
   customCss = await loadDynamicContent("CUSTOM_CSS");
+
+  // Debugging: Log loaded content (trimmed for clarity)
+  console.log(`[DEBUG] Loaded HTML Template (first 100 chars): ${customHtmlTemplate.slice(0, 100)}`);
+  console.log(`[DEBUG] Loaded CSS (first 100 chars): ${customCss.slice(0, 100)}`);
 })();
 
 const converter = new showdown.Converter();
@@ -109,13 +116,16 @@ export function renderPage(info: ServiceInfo) {
   const headerHtml = buildInfoPageHeader(info);
 
   // Use dynamic HTML template if provided
-  if (customHtmlTemplate) {
+  if (customHtmlTemplate && customHtmlTemplate.trim().length > 0) {
     return customHtmlTemplate
       .replace("{{title}}", title)
       .replace("{{headerHtml}}", headerHtml)
       .replace("{{selfServiceLinks}}", getSelfServiceLinks())
       .replace("{{infoJson}}", JSON.stringify(info, null, 2));
   }
+
+  // Log fallback usage
+  console.log("[WARN] Falling back to default HTML template");
 
   // Fallback to default HTML
   return `<!doctype html>
