@@ -91,7 +91,7 @@ export function renderPage(info: ServiceInfo) {
         max-width: 900px;
         margin: 0;
       }
-
+      
       .self-service-links {
         display: flex;
         justify-content: center;
@@ -99,7 +99,7 @@ export function renderPage(info: ServiceInfo) {
         padding: 0.5em;
         font-size: 0.8em;
       }
-
+      
       .self-service-links a {
         margin: 0 0.5em;
       }
@@ -226,13 +226,13 @@ function buildRecentImageSection() {
 
 function escapeHtml(unsafe: string) {
   return unsafe
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """)
-    .replace(/'/g, "'")
-    .replace(/\[/g, "[")
-    .replace(/]/g, "]");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\[/g, "&#91;")
+    .replace(/]/g, "&#93;");
 }
 
 function getExternalUrlForHuggingfaceSpaceId(spaceId: string) {
