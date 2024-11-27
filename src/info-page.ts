@@ -72,31 +72,45 @@ export const handleInfoPage = (req: Request, res: Response) => {
 };
 
 export function renderPage(info: ServiceInfo) {
+  const title = getServerTitle();
+  const headerHtml = buildInfoPageHeader(info);
+
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>${title}</title>
+    <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
+    <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
+    <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
     <style>
       body {
-        background-color: black;
-        color: white;
-        font-family: monospace;
+        font-family: sans-serif;
+        padding: 1em;
+        max-width: 900px;
+        margin: 0;
+      }
+
+      .self-service-links {
         display: flex;
         justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
-        text-align: center;
+        margin-bottom: 1em;
+        padding: 0.5em;
+        font-size: 0.8em;
       }
-      .message {
-        max-width: 600px;
-        padding: 20px;
+
+      .self-service-links a {
+        margin: 0 0.5em;
       }
     </style>
   </head>
   <body>
-    <div class="message">
-    </div>
+    ${headerHtml}
+    <hr />
+    ${getSelfServiceLinks()}
+    <h2>Service Info</h2>
+    <pre>${JSON.stringify(info, null, 2)}</pre>
   </body>
 </html>`;
 }
@@ -212,13 +226,13 @@ function buildRecentImageSection() {
 
 function escapeHtml(unsafe: string) {
   return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/\[/g, "&#91;")
-    .replace(/]/g, "&#93;");
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, """)
+    .replace(/'/g, "'")
+    .replace(/\[/g, "[")
+    .replace(/]/g, "]");
 }
 
 function getExternalUrlForHuggingfaceSpaceId(spaceId: string) {
