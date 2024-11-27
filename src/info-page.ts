@@ -1,6 +1,7 @@
 import fs from "fs";
 import express, { Router, Request, Response } from "express";
 import showdown from "showdown";
+import axios from "axios";
 import { config } from "./config";
 import { buildInfo, ServiceInfo } from "./service-info";
 import { getLastNImages } from "./shared/file-storage/image-history";
@@ -8,9 +9,9 @@ import { keyPool } from "./shared/key-management";
 import { MODEL_FAMILY_SERVICE, ModelFamily } from "./shared/models";
 import { withSession } from "./shared/with-session";
 import { checkCsrfToken, injectCsrfToken } from "./shared/inject-csrf";
-import axios from "axios";
 
 const INFO_PAGE_TTL = 2000;
+
 const MODEL_FAMILY_FRIENDLY_NAME: { [f in ModelFamily]: string } = {
   turbo: "GPT-4o Mini / 3.5 Turbo",
   gpt4: "GPT-4",
@@ -48,7 +49,7 @@ const MODEL_FAMILY_FRIENDLY_NAME: { [f in ModelFamily]: string } = {
 };
 
 // Utility to load HTML or CSS from .env variable, file, or URL
-function loadDynamicContent(envVar: string): string {
+async function loadDynamicContent(envVar: string): Promise<string> {
   const value = process.env[envVar];
   if (!value) return "";
 
@@ -58,7 +59,7 @@ function loadDynamicContent(envVar: string): string {
       return fs.readFileSync(value, "utf8");
     } else if (value.startsWith("http://") || value.startsWith("https://")) {
       // Load from URL
-      const response = axios.get(value);
+      const response = await axios.get(value); // Await the response
       return response.data;
     } else {
       // Inline content
@@ -71,8 +72,13 @@ function loadDynamicContent(envVar: string): string {
 }
 
 // Load dynamic HTML and CSS
-const customHtmlTemplate = loadDynamicContent("CUSTOM_HTML_TEMPLATE");
-const customCss = loadDynamicContent("CUSTOM_CSS");
+let customHtmlTemplate = "";
+let customCss = "";
+
+(async () => {
+  customHtmlTemplate = await loadDynamicContent("CUSTOM_HTML_TEMPLATE");
+  customCss = await loadDynamicContent("CUSTOM_CSS");
+})();
 
 const converter = new showdown.Converter();
 const customGreeting = fs.existsSync("greeting.md")
@@ -116,8 +122,6 @@ export function renderPage(info: ServiceInfo) {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="robots" content="noindex" />
-    <title>${title}</title>
     <style>${customCss || defaultCss}</style>
   </head>
   <body>
@@ -156,71 +160,69 @@ const defaultCss = `
   }
 `;
 
-/**
- * Builds the info page header
- */
-function buildInfoPageHeader(info: ServiceInfo) {
-  const title = getServerTitle();
-  let infoBody = `# ${title}`;
-  if (config.promptLogging) {
-    infoBody += `\n### Prompt Logging Enabled`;
+// Re-added function to get external Huggingface Space URL
+function getExternalUrlForHuggingfaceSpaceId(spaceId: string): string {
+  try {
+    const [username, spacename] = spaceId.split("/");
+    return `https://${username}-${spacename.replace(/_/g, "-")}.hf.space`;
+  } catch (e) {
+    return "";
   }
-
-  if (config.staticServiceInfo) {
-    return converter.makeHtml(infoBody + customGreeting);
-  }
-
-  const waits: string[] = [];
-
-  for (const modelFamily of config.allowedModelFamilies) {
-    const service = MODEL_FAMILY_SERVICE[modelFamily];
-
-    const hasKeys = keyPool.list().some((k) => {
-      return k.service === service && k.modelFamilies.includes(modelFamily);
-    });
-
-    const wait = info[modelFamily]?.estimatedQueueTime;
-    if (hasKeys && wait) {
-      waits.push(
-        `**${MODEL_FAMILY_FRIENDLY_NAME[modelFamily] || modelFamily}**: ${wait}`
-      );
-    }
-  }
-
-  infoBody += "\n\n" + waits.join(" / ");
-  infoBody += customGreeting;
-  infoBody += buildRecentImageSection();
-
-  return converter.makeHtml(infoBody);
 }
 
-function getSelfServiceLinks() {
-  if (config.gatekeeper !== "user_token") return "";
-
-  const links = [["Check your user token", "/user/lookup"]];
-  if (config.captchaMode !== "none") {
-    links.unshift(["Request a user token", "/user/captcha"]);
+// Re-added buildRecentImageSection
+function buildRecentImageSection() {
+  const dalleModels: ModelFamily[] = ["azure-dall-e", "dall-e"];
+  if (
+    !config.showRecentImages ||
+    dalleModels.every((f) => !config.allowedModelFamilies.includes(f))
+  ) {
+    return "";
   }
 
-  return `<div class="self-service-links">${links
-    .map(([text, link]) => `<a href="${link}">${text}</a>`)
-    .join(" | ")}</div>`;
+  let html = `<h2>Recent DALL-E Generations</h2>`;
+  const recentImages = getLastNImages(12).reverse();
+  if (recentImages.length === 0) {
+    html += `<p>No images yet.</p>`;
+    return html;
+  }
+
+  html += `<div style="display: flex; flex-wrap: wrap;" id="recent-images">`;
+  for (const { url, prompt } of recentImages) {
+    const thumbUrl = url.replace(/\.png$/, "_t.jpg");
+    const escapedPrompt = escapeHtml(prompt);
+    html += `<div style="margin: 0.5em;" class="recent-image">
+<a href="${url}" target="_blank"><img src="${thumbUrl}" title="${escapedPrompt}" alt="${escapedPrompt}" style="max-width: 150px; max-height: 150px;" /></a>
+</div>`;
+  }
+  html += `</div>`;
+  html += `<p style="clear: both; text-align: center;"><a href="/user/image-history">View all recent images</a></p>`;
+
+  return html;
 }
 
-function getServerTitle() {
-  if (process.env.SERVER_TITLE) {
-    return process.env.SERVER_TITLE;
-  }
+// Escape HTML function
+function escapeHtml(unsafe: string) {
+  return unsafe
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, "\"")
+    .replace(/'/g, "'")
+    .replace(/\[/g, "[")
+    .replace(/]/g, "]");
+}
 
-  if (process.env.SPACE_ID) {
-    return `${process.env.SPACE_AUTHOR_NAME} / ${process.env.SPACE_TITLE}`;
+// Re-added checkIfUnlocked middleware
+function checkIfUnlocked(
+  req: Request,
+  res: Response,
+  next: express.NextFunction
+) {
+  if (config.serviceInfoPassword?.length && !req.session?.unlocked) {
+    return res.redirect("/unlock-info");
   }
-
-  if (process.env.RENDER) {
-    return `Render / ${process.env.RENDER_SERVICE_NAME}`;
-  }
-
-  return "OAI Reverse Proxy";
+  next();
 }
 
 const infoPageRouter = Router();
@@ -242,7 +244,6 @@ if (config.serviceInfoPassword?.length) {
   infoPageRouter.get("/unlock-info", (_req, res) => {
     if (_req.session?.unlocked) return res.redirect("/");
 
-    // Improved "Unlock Service Info" form with a techy design
     const csrfToken = res.locals.csrfToken || "";
     res.send(`
       <!doctype html>
@@ -258,7 +259,7 @@ if (config.serviceInfoPassword?.length) {
               align-items: center;
               height: 100vh;
               margin: 0;
-              font-family: 'Roboto', sans-serif;
+            font-family: 'Roboto', sans-serif;
               background-color: #0d1117;
               color: #c9d1d9;
             }
@@ -297,11 +298,6 @@ if (config.serviceInfoPassword?.length) {
             }
             button:hover {
               background: #2ea043;
-            }
-            .error {
-              color: #f85149;
-              margin-top: 1em;
-              font-size: 0.9em;
             }
           </style>
         </head>
