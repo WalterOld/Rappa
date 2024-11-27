@@ -54,6 +54,28 @@ const customGreeting = fs.existsSync("greeting.md")
 let infoPageHtml: string | undefined;
 let infoPageLastUpdated = 0;
 
+// Helper function to load CSS dynamically based on the environment variable
+function getCustomCss(): string {
+  const customCss = process.env.CUSTOM_CSS;
+
+  if (!customCss) {
+    return `
+      <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
+      <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
+      <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
+    `;
+  }
+
+  // Check if the custom CSS is a URL or file path
+  if (customCss.startsWith("http://") || customCss.startsWith("https://") || customCss.endsWith(".css")) {
+    // Assume it's a link to an external CSS file or a local path
+    return `<link rel="stylesheet" href="${customCss}" media="screen" />`;
+  }
+
+  // Otherwise, assume it's raw CSS content
+  return `<style>${customCss}</style>`;
+}
+
 export const handleInfoPage = (req: Request, res: Response) => {
   if (infoPageLastUpdated + INFO_PAGE_TTL > Date.now()) {
     return res.send(infoPageHtml);
@@ -74,6 +96,7 @@ export const handleInfoPage = (req: Request, res: Response) => {
 export function renderPage(info: ServiceInfo) {
   const title = getServerTitle();
   const headerHtml = buildInfoPageHeader(info);
+  const css = getCustomCss(); // Use the helper function to load CSS
 
   return `<!doctype html>
 <html lang="en">
@@ -81,9 +104,7 @@ export function renderPage(info: ServiceInfo) {
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
     <title>${title}</title>
-    <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
-    <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
-    <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
+    ${css}
     <style>
       body {
         font-family: sans-serif;
@@ -91,7 +112,7 @@ export function renderPage(info: ServiceInfo) {
         max-width: 900px;
         margin: 0;
       }
-      
+
       .self-service-links {
         display: flex;
         justify-content: center;
@@ -99,7 +120,7 @@ export function renderPage(info: ServiceInfo) {
         padding: 0.5em;
         font-size: 0.8em;
       }
-      
+
       .self-service-links a {
         margin: 0 0.5em;
       }
