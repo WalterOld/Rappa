@@ -73,57 +73,66 @@ export const handleInfoPage = (req: Request, res: Response) => {
   res.send(infoPageHtml);
 };
 
+function getCustomData(data: string) {
+  if (fs.existsSync(data)) {
+    return fs.readFileSync(data, 'utf-8');
+  } else if (data.startsWith('http')) {
+    return axios.get(data).then(res => res.data).catch(() => '');
+  } else {
+    try {
+      return Buffer.from(data, 'base64').toString('utf-8');
+    } catch {
+      return '';
+    }
+  }
+}
+
 export function renderPage(info: ServiceInfo) {
-  const htmlPath = process.env.HTML_CUSTOM;
-  const cssPath = process.env.CSS_CUSTOM;
+  const title = getServerTitle();
+  const headerHtml = buildInfoPageHeader(info);
 
-  let htmlData = "";
-  let cssData = "";
+  const customCSS = process.env.CUSTOM_CSS ? getCustomData(process.env.CUSTOM_CSS) : `
+    body {
+      font-family: sans-serif;
+      padding: 1em;
+      max-width: 900px;
+      margin: 0;
+    }
 
-  // Check if HTML_CUSTOM and CSS_CUSTOM are URLs, files, or base64
-  if (htmlPath.startsWith("http")) {
-    // It's a URL, make a GET request
-    axios.get(htmlPath).then((response) => {
-      htmlData = response.data;
-    });
-  } else if (fs.existsSync(htmlPath)) {
-    // It's a file, read it
-    htmlData = fs.readFileSync(htmlPath, "utf8");
-  } else {
-    // It's base64, decode it
-    htmlData = Buffer.from(htmlPath, "base64").toString("utf8");
-  }
+    .self-service-links {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1em;
+      padding: 0.5em;
+      font-size: 0.8em;
+    }
 
-  if (cssPath.startsWith("http")) {
-    axios.get(cssPath).then((response) => {
-      cssData = response.data;
-    });
-  } else if (fs.existsSync(cssPath)) {
-    cssData = fs.readFileSync(cssPath, "utf8");
-  } else {
-    cssData = Buffer.from(cssPath, "base64").toString("utf8");
-  }
+    .self-service-links a {
+      margin: 0 0.5em;
+    }`;
 
-  // Then replace the hard-coded HTML and CSS with the variables
+  const customHTML = process.env.CUSTOM_HTML ? getCustomData(process.env.CUSTOM_HTML) : '';
+
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
-    <title>${getServerTitle()}</title>
+    <title>${title}</title>
     <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
     <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
     <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
     <style>
-      ${cssData}
+      ${customCSS}
     </style>
   </head>
   <body>
-    ${htmlData}
+    ${headerHtml}
     <hr />
     ${getSelfServiceLinks()}
     <h2>Service Info</h2>
     <pre>${JSON.stringify(info, null, 2)}</pre>
+    ${customHTML}
   </body>
 </html>`;
 }
