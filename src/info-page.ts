@@ -73,43 +73,33 @@ export const handleInfoPage = (req: Request, res: Response) => {
 export function renderPage(info: ServiceInfo) {
   const title = getServerTitle();
   const headerHtml = buildInfoPageHeader(info);
+  const selfServiceLinks = getSelfServiceLinks();
+  const infoJson = JSON.stringify(info, null, 2);
 
+  // Use dynamic HTML template if provided
+  if (customHtmlTemplate) {
+    return customHtmlTemplate
+      .replace("{{title}}", title)
+      .replace("{{headerHtml}}", headerHtml)
+      .replace("{{selfServiceLinks}}", selfServiceLinks)
+      .replace("{{infoJson}}", infoJson);
+  }
+
+  // Fallback to default HTML
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
     <title>${title}</title>
-    <link rel="stylesheet" href="/res/css/reset.css" media="screen" />
-    <link rel="stylesheet" href="/res/css/sakura.css" media="screen" />
-    <link rel="stylesheet" href="/res/css/sakura-dark.css" media="screen and (prefers-color-scheme: dark)" />
-    <style>
-      body {
-        font-family: sans-serif;
-        padding: 1em;
-        max-width: 900px;
-        margin: 0;
-      }
-
-      .self-service-links {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 1em;
-        padding: 0.5em;
-        font-size: 0.8em;
-      }
-
-      .self-service-links a {
-        margin: 0 0.5em;
-      }
-    </style>
+    <style>${customCss || defaultCss}</style>
   </head>
   <body>
     ${headerHtml}
     <hr />
-    ${getSelfServiceLinks()}
+    ${selfServiceLinks}
     <h2>Service Info</h2>
-    <pre>${JSON.stringify(info, null, 2)}</pre>
+    <pre>${infoJson}</pre>
   </body>
 </html>`;
 }
@@ -123,12 +113,7 @@ function buildInfoPageHeader(info: ServiceInfo) {
   // TODO: use some templating engine instead of this mess
   let infoBody = `# ${title}`;
   if (config.promptLogging) {
-    infoBody += `\n## Prompt Logging Enabled
-This proxy keeps full logs of all prompts and AI responses. Prompt logs are anonymous and do not contain IP addresses or timestamps.
-
-[You can see the type of data logged here, along with the rest of the code.](https://gitgud.io/khanon/oai-reverse-proxy/-/blob/main/src/shared/prompt-logging/index.ts).
-
-**If you are uncomfortable with this, don't send prompts to this proxy!**`;
+    infoBody += `\n## Prompt Logging Enabled`;
   }
 
   if (config.staticServiceInfo) {
